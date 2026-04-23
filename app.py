@@ -1,95 +1,38 @@
 import streamlit as st
-import requests
+import json
+from sentence_transformers import SentenceTransformer, util
 
-# -------------------------------
-# Setup
-# -------------------------------
-st.set_page_config(page_title="Rasa Analyzer", layout="centered")
+st.set_page_config(page_title="Pampa Bharata QA", layout="centered")
 
-st.title("🎭 Pampa Bharata Rasa Analyzer")
+st.title("📜 Pampa Bharata QA System")
+st.write("Ask a question in Kannada and get relevant verse")
 
-st.write("Enter Kannada text to classify Rasa, Sthayi Bhava, and Sanchari Bhava")
+# Load model
+model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
-# Get API key from secrets
-API_KEY = st.secrets["SARVAM_API_KEY"]
+# Load dataset
+with open("pampa_annotated.json", "r", encoding="utf-8") as f:
+    data = json.load(f)
 
-url = "https://api.sarvam.ai/v1/chat/completions"
+texts = [item["text"] for item in data]
 
-headers = {
-    "Authorization": f"Bearer {API_KEY}",
-    "Content-Type": "application/json"
-}
+# Create embeddings (cached)
+@st.cache_resource
+def get_embeddings(texts):
+    return model.encode(texts, convert_to_tensor=True)
 
-# -------------------------------
-# Parser function
-# -------------------------------
-def parse_output(output):
-    lines = output.split("\n")
+embeddings = get_embeddings(texts)
 
-    rasa, sthayi, sanchari = "", "", ""
+# User input
+query = st.text_input("Enter your question in Kannada")
 
-    for line in lines:
-        if "Rasa" in line:
-            rasa = line.split(":")[-1].strip()
-        elif "Sthayi" in line:
-            sthayi = line.split(":")[-1].strip()
-        elif "Sanchari" in line:
-            sanchari = line.split(":")[-1].strip()
-
-    return rasa, sthayi, sanchari
-
-
-# -------------------------------
-# User Input
-# -------------------------------
-text = st.text_area("Enter Kannada Text", height=150)
-
-if st.button("Analyze"):
-
-    if not text.strip():
-        st.warning("Please enter some text")
+if st.button("Search"):
+    if query.strip() == "":
+        st.warning("Please enter a question")
     else:
-        with st.spinner("Analyzing with Sarvam AI..."):
+        query_embedding = model.encode(query, convert_to_tensor=True)
+        scores = util.cos_sim(query_embedding, embeddings)[0]
+        best_idx = scores.argmax()
 
-            prompt = f"""
-            STRICT FORMAT:
-            Rasa: <value>
-            Sthayi Bhava: <value>
-            Sanchari Bhava: <value>
-
-            Classify the following Kannada text:
-
-            {text}
-            """
-
-            payload = {
-                "model": "sarvam-m",
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.2
-            }
-
-            try:
-                response = requests.post(url, headers=headers, json=payload)
-                result = response.json()
-
-                output_text = result["choices"][0]["message"]["content"]
-
-                rasa, sthayi, sanchari = parse_output(output_text)
-
-                # -------------------------------
-                # Display Results
-                # -------------------------------
-                st.success("✅ Analysis Complete")
-
-                st.subheader("Results:")
-                st.write("🎭 **Rasa:**", rasa)
-                st.write("💭 **Sthayi Bhava:**", sthayi)
-                st.write("🌊 **Sanchari Bhava:**", sanchari)
-
-                st.expander("🔍 Raw Output").write(output_text)
-
-            except Exception as e:
-                st.error("Error connecting to Sarvam API")
-                st.write(e)
+        st.subheader("📖 Relevant Verse:")
+        st.write(texts[best_idx])
