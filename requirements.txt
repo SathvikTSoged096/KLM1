@@ -1,2 +1,3 @@
 streamlit
-requests
+sentence-transformers
+torch
