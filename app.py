@@ -11,7 +11,7 @@ st.write("Ask a question in Kannada and get relevant verse")
 model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 # Load dataset
-with open("pampa_annotated.json", "r", encoding="utf-8") as f:
+with open("pampa_sarvam_structured.json", "r", encoding="utf-8") as f:
     data = json.load(f)
 
 texts = [item["text"] for item in data]
