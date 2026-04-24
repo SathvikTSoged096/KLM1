@@ -11,7 +11,7 @@ embed_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 whisper_model = whisper.load_model("base")
 
 # Load dataset
-with open("pampa_dataset.json", "r", encoding="utf-8") as f:
+with open("pampa_sarvam_structured.json", "r", encoding="utf-8") as f:
     data = json.load(f)
 
 texts = [item["text"] for item in data]
