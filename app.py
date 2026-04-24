@@ -1,38 +1,68 @@
 import streamlit as st
 import json
+import requests
+import whisper
 from sentence_transformers import SentenceTransformer, util
 
-st.set_page_config(page_title="Pampa Bharata QA", layout="centered")
+st.title("🎙️ Pampa Bharata AEO QA")
 
-st.title("📜 Pampa Bharata QA System")
-st.write("Ask a question in Kannada and get relevant verse")
-
-# Load model
-model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+# Load models
+embed_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+whisper_model = whisper.load_model("base")
 
 # Load dataset
-with open("pampa_sarvam_structured.json", "r", encoding="utf-8") as f:
+with open("pampa_dataset.json", "r", encoding="utf-8") as f:
     data = json.load(f)
 
 texts = [item["text"] for item in data]
+embeddings = embed_model.encode(texts, convert_to_tensor=True)
 
-# Create embeddings (cached)
-@st.cache_resource
-def get_embeddings(texts):
-    return model.encode(texts, convert_to_tensor=True)
+# API setup
+API_KEY = st.secrets["SARVAM_API_KEY"]
+url = "https://api.sarvam.ai/v1/chat/completions"
 
-embeddings = get_embeddings(texts)
+headers = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json"
+}
 
-# User input
-query = st.text_input("Enter your question in Kannada")
+# Input options
+option = st.radio("Choose Input Type", ["Text", "Voice"])
 
-if st.button("Search"):
-    if query.strip() == "":
-        st.warning("Please enter a question")
-    else:
-        query_embedding = model.encode(query, convert_to_tensor=True)
-        scores = util.cos_sim(query_embedding, embeddings)[0]
-        best_idx = scores.argmax()
+if option == "Text":
+    query = st.text_input("Enter question")
 
-        st.subheader("📖 Relevant Verse:")
-        st.write(texts[best_idx])
+else:
+    audio_file = st.file_uploader("Upload audio", type=["wav", "mp3"])
+    if audio_file:
+        query = whisper_model.transcribe(audio_file)["text"]
+        st.write("Recognized Text:", query)
+
+# Search
+if st.button("Get Answer"):
+
+    query_embedding = embed_model.encode(query, convert_to_tensor=True)
+    scores = util.cos_sim(query_embedding, embeddings)[0]
+
+    top_k = scores.topk(3)
+    context = " ".join([texts[idx] for idx in top_k.indices])
+
+    # AEO
+    prompt = f"""
+    Answer briefly in Kannada (1-2 lines).
+
+    Question: {query}
+    Context: {context}
+    """
+
+    payload = {
+        "model": "sarvam-m",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.2
+    }
+
+    response = requests.post(url, headers=headers, json=payload)
+    answer = response.json()["choices"][0]["message"]["content"]
+
+    st.subheader("📌 Short Answer:")
+    st.write(answer)
