@@ -29,7 +29,7 @@ whisper_model = load_whisper()
 # -------------------------------
 # LOAD DATASET
 # -------------------------------
-with open("pampa_dataset.json", "r", encoding="utf-8") as f:
+with open("pampa_sarvam_structured.json", "r", encoding="utf-8") as f:
     data = json.load(f)
 
 texts = [item["text"] for item in data]
