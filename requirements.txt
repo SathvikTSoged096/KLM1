@@ -4,3 +4,4 @@ torch
 requests
 openai-whisper
 ffmpeg-python
+gtts
