@@ -3,13 +3,17 @@ import json
 import requests
 import whisper
 from sentence_transformers import SentenceTransformer, util
+from gtts import gTTS
+import tempfile
 
-st.set_page_config(page_title="Pampa QA", layout="centered")
-
+# -------------------------------
+# PAGE CONFIG
+# -------------------------------
+st.set_page_config(page_title="Kannada QA System", layout="centered")
 st.title("🎙️ Kannada QA System (Pampa Bharata)")
 
 # -------------------------------
-# Load models (CACHED)
+# LOAD MODELS (CACHED)
 # -------------------------------
 @st.cache_resource
 def load_embed_model():
@@ -23,15 +27,15 @@ embed_model = load_embed_model()
 whisper_model = load_whisper()
 
 # -------------------------------
-# Load dataset
+# LOAD DATASET
 # -------------------------------
-with open("pampa_sarvam_structured.json", "r", encoding="utf-8") as f:
+with open("pampa_dataset.json", "r", encoding="utf-8") as f:
     data = json.load(f)
 
 texts = [item["text"] for item in data]
 
 # -------------------------------
-# Cache embeddings
+# CACHE EMBEDDINGS
 # -------------------------------
 @st.cache_resource
 def get_embeddings(texts):
@@ -40,7 +44,7 @@ def get_embeddings(texts):
 embeddings = get_embeddings(texts)
 
 # -------------------------------
-# Sarvam API setup
+# SARVAM API SETUP
 # -------------------------------
 API_KEY = st.secrets["SARVAM_API_KEY"]
 
@@ -52,23 +56,32 @@ headers = {
 url = "https://api.sarvam.ai/v1/chat/completions"
 
 # -------------------------------
-# Input mode
+# TEXT → SPEECH FUNCTION
+# -------------------------------
+def text_to_speech(text):
+    tts = gTTS(text=text, lang='kn')
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    tts.save(temp_file.name)
+    return temp_file.name
+
+# -------------------------------
+# INPUT MODE
 # -------------------------------
 mode = st.radio("Choose Input Type", ["Text", "Voice"])
 
 query = ""
 
 if mode == "Text":
-    query = st.text_input("Enter Kannada question")
+    query = st.text_input("Enter your question in Kannada")
 
 else:
     audio_file = st.file_uploader("Upload audio", type=["wav", "mp3"])
     
     if audio_file:
-        with st.spinner("Transcribing..."):
+        with st.spinner("🎤 Transcribing audio..."):
             result = whisper_model.transcribe(audio_file)
             query = result["text"]
-            st.write("Recognized:", query)
+            st.write("Recognized Text:", query)
 
 # -------------------------------
 # MAIN PROCESS
@@ -76,18 +89,18 @@ else:
 if st.button("Get Answer"):
 
     if not query:
-        st.warning("Enter or upload input")
+        st.warning("Please enter or upload input")
     else:
-        with st.spinner("Processing..."):
+        with st.spinner("⚡ Processing..."):
 
-            # Step 1: Retrieval
+            # Step 1: Retrieve relevant text
             query_embedding = embed_model.encode(query, convert_to_tensor=True)
             scores = util.cos_sim(query_embedding, embeddings)[0]
 
             top_k = scores.topk(3)
             context = " ".join([texts[idx] for idx in top_k.indices])
 
-            # Step 2: AEO (Sarvam)
+            # Step 2: Ask Sarvam for short answer
             prompt = f"""
             Answer in Kannada in 1-2 lines only.
 
@@ -109,12 +122,24 @@ if st.button("Get Answer"):
 
                 answer = result["choices"][0]["message"]["content"]
 
+                # -------------------------------
+                # DISPLAY TEXT OUTPUT
+                # -------------------------------
                 st.subheader("📌 Short Answer:")
                 st.success(answer)
 
-            except:
-                st.error("Sarvam API error")
+                # -------------------------------
+                # VOICE OUTPUT
+                # -------------------------------
+                audio_file = text_to_speech(answer)
+                st.audio(audio_file, format="audio/mp3")
 
-            # Optional: show retrieved text
-            with st.expander("📜 Retrieved Context"):
-                st.write(context)
+                # -------------------------------
+                # OPTIONAL CONTEXT VIEW
+                # -------------------------------
+                with st.expander("📜 Retrieved Context"):
+                    st.write(context)
+
+            except Exception as e:
+                st.error("Sarvam API error")
+                st.write(e)
