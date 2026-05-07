@@ -3,7 +3,6 @@ import json
 import requests
 import whisper
 from sentence_transformers import SentenceTransformer, util
-import tempfile
 
 # -------------------------------
 # PAGE CONFIG
@@ -16,12 +15,15 @@ st.set_page_config(
 st.title("🎙️ Kannada QA System (Pampa Bharata)")
 
 # -------------------------------
-# LOAD MODELS (CACHED)
+# LOAD EMBEDDING MODEL
 # -------------------------------
 @st.cache_resource
 def load_embed_model():
     return SentenceTransformer('all-MiniLM-L6-v2')
 
+# -------------------------------
+# LOAD WHISPER MODEL
+# -------------------------------
 @st.cache_resource
 def load_whisper():
     return whisper.load_model("tiny")
@@ -43,10 +45,11 @@ with open(
 texts = [item["text"] for item in data]
 
 # -------------------------------
-# CACHE EMBEDDINGS
+# CREATE EMBEDDINGS
 # -------------------------------
 @st.cache_resource
 def get_embeddings(texts):
+
     return embed_model.encode(
         texts,
         convert_to_tensor=True
@@ -55,7 +58,7 @@ def get_embeddings(texts):
 embeddings = get_embeddings(texts)
 
 # -------------------------------
-# SARVAM API SETUP
+# SARVAM API
 # -------------------------------
 SARVAM_API_KEY = st.secrets["SARVAM_API_KEY"]
 
@@ -64,14 +67,16 @@ sarvam_headers = {
     "Content-Type": "application/json"
 }
 
-sarvam_url = "https://api.sarvam.ai/v1/chat/completions"
+sarvam_url = (
+    "https://api.sarvam.ai/v1/chat/completions"
+)
 
 # -------------------------------
-# ELEVENLABS API SETUP
+# ELEVENLABS API
 # -------------------------------
 ELEVEN_API_KEY = st.secrets["ELEVEN_API_KEY"]
 
-VOICE_ID = "EXAVITQu4vr4xnSDxMaL"
+VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
 
 # -------------------------------
 # ELEVENLABS TTS FUNCTION
@@ -85,12 +90,20 @@ def text_to_speech(text):
 
     headers = {
         "xi-api-key": ELEVEN_API_KEY,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg"
     }
 
     payload = {
+
         "text": text,
-        "model_id": "eleven_multilingual_v2"
+
+        "model_id": "eleven_multilingual_v2",
+
+        "voice_settings": {
+            "stability": 0.5,
+            "similarity_boost": 0.75
+        }
     }
 
     response = requests.post(
@@ -98,6 +111,18 @@ def text_to_speech(text):
         json=payload,
         headers=headers
     )
+
+    # DEBUG STATUS
+    st.write("🔍 ElevenLabs Status:",
+             response.status_code)
+
+    if response.status_code != 200:
+
+        st.error("ElevenLabs Error")
+
+        st.write(response.text)
+
+        return None
 
     return response.content
 
@@ -126,14 +151,14 @@ if mode == "Text":
 else:
 
     audio_file = st.file_uploader(
-        "Upload audio",
+        "Upload Audio",
         type=["wav", "mp3"]
     )
 
     if audio_file:
 
         with st.spinner(
-            "🎤 Transcribing audio..."
+            "🎤 Transcribing..."
         ):
 
             result = whisper_model.transcribe(
@@ -142,9 +167,8 @@ else:
 
             query = result["text"]
 
-            st.write(
-                "Recognized Text:",
-                query
+            st.success(
+                f"Recognized: {query}"
             )
 
 # -------------------------------
@@ -155,16 +179,18 @@ if st.button("Get Answer"):
     if not query:
 
         st.warning(
-            "Please enter or upload input"
+            "Please enter a question"
         )
 
     else:
 
-        with st.spinner("⚡ Processing..."):
+        with st.spinner(
+            "⚡ Processing..."
+        ):
 
-            # --------------------------------
+            # -------------------------------
             # STEP 1: RETRIEVE CONTEXT
-            # --------------------------------
+            # -------------------------------
             query_embedding = embed_model.encode(
                 query,
                 convert_to_tensor=True
@@ -182,9 +208,9 @@ if st.button("Get Answer"):
                 for idx in top_k.indices
             ])
 
-            # --------------------------------
-            # STEP 2: SARVAM ANSWER
-            # --------------------------------
+            # -------------------------------
+            # STEP 2: SARVAM PROMPT
+            # -------------------------------
             prompt = f"""
             Answer in Kannada in 1-2 lines only.
 
@@ -196,6 +222,7 @@ if st.button("Get Answer"):
             """
 
             payload = {
+
                 "model": "sarvam-m",
 
                 "messages": [
@@ -210,6 +237,9 @@ if st.button("Get Answer"):
 
             try:
 
+                # -------------------------------
+                # SARVAM API CALL
+                # -------------------------------
                 response = requests.post(
                     sarvam_url,
                     headers=sarvam_headers,
@@ -223,43 +253,42 @@ if st.button("Get Answer"):
                     ["message"]["content"]
                 )
 
-                # --------------------------------
+                # -------------------------------
                 # DISPLAY ANSWER
-                # --------------------------------
+                # -------------------------------
                 st.subheader(
-                    "📌 Short Answer:"
+                    "📌 Short Answer"
                 )
 
                 st.success(answer)
 
-                # --------------------------------
-                # GENERATE ELEVENLABS AUDIO
-                # --------------------------------
+                # -------------------------------
+                # ELEVENLABS AUDIO
+                # -------------------------------
                 audio_data = text_to_speech(
                     answer
                 )
 
-                # Save temp mp3
-                with tempfile.NamedTemporaryFile(
-                    delete=False,
-                    suffix=".mp3"
-                ) as tmp_file:
+                if audio_data:
 
-                    tmp_file.write(audio_data)
+                    st.success(
+                        "🔊 Audio Generated"
+                    )
 
-                    audio_path = tmp_file.name
+                    st.audio(
+                        audio_data,
+                        format="audio/mp3"
+                    )
 
-                # --------------------------------
-                # PLAY AUDIO
-                # --------------------------------
-                st.audio(
-                    audio_path,
-                    format="audio/mp3"
-                )
+                else:
 
-                # --------------------------------
-                # OPTIONAL CONTEXT
-                # --------------------------------
+                    st.error(
+                        "Audio generation failed"
+                    )
+
+                # -------------------------------
+                # SHOW CONTEXT
+                # -------------------------------
                 with st.expander(
                     "📜 Retrieved Context"
                 ):
