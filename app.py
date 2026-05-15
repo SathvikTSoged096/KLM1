@@ -72,61 +72,6 @@ sarvam_url = (
 )
 
 # -------------------------------
-# ELEVENLABS API
-# -------------------------------
-ELEVEN_API_KEY = st.secrets["ELEVEN_API_KEY"]
-
-VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
-
-# -------------------------------
-# ELEVENLABS TTS FUNCTION
-# -------------------------------
-def text_to_speech(text):
-
-    url = (
-        f"https://api.elevenlabs.io/v1/text-to-speech/"
-        f"{VOICE_ID}"
-    )
-
-    headers = {
-        "xi-api-key": ELEVEN_API_KEY,
-        "Content-Type": "application/json",
-        "Accept": "audio/mpeg"
-    }
-
-    payload = {
-
-        "text": text,
-
-        "model_id": "eleven_multilingual_v2",
-
-        "voice_settings": {
-            "stability": 0.5,
-            "similarity_boost": 0.75
-        }
-    }
-
-    response = requests.post(
-        url,
-        json=payload,
-        headers=headers
-    )
-
-    # DEBUG STATUS
-    st.write("🔍 ElevenLabs Status:",
-             response.status_code)
-
-    if response.status_code != 200:
-
-        st.error("ElevenLabs Error")
-
-        st.write(response.text)
-
-        return None
-
-    return response.content
-
-# -------------------------------
 # INPUT MODE
 # -------------------------------
 mode = st.radio(
@@ -261,30 +206,6 @@ if st.button("Get Answer"):
                 )
 
                 st.success(answer)
-
-                # -------------------------------
-                # ELEVENLABS AUDIO
-                # -------------------------------
-                audio_data = text_to_speech(
-                    answer
-                )
-
-                if audio_data:
-
-                    st.success(
-                        "🔊 Audio Generated"
-                    )
-
-                    st.audio(
-                        audio_data,
-                        format="audio/mp3"
-                    )
-
-                else:
-
-                    st.error(
-                        "Audio generation failed"
-                    )
 
                 # -------------------------------
                 # SHOW CONTEXT
