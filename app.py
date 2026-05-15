@@ -1,225 +1,126 @@
 import streamlit as st
-import json
 import requests
-import whisper
-from sentence_transformers import SentenceTransformer, util
+import base64
+import tempfile
 
-# -------------------------------
+# =====================================
+# SARVAM API KEY
+# =====================================
+SARVAM_API_KEY = st.secrets["SARVAM_API_KEY"]
+
+# =====================================
 # PAGE CONFIG
-# -------------------------------
+# =====================================
 st.set_page_config(
-    page_title="Kannada QA System",
+    page_title="Sarvam Kannada TTS",
     layout="centered"
 )
 
-st.title("🎙️ Kannada QA System (Pampa Bharata)")
+st.title("🎤 Kannada Text To Speech")
 
-# -------------------------------
-# LOAD EMBEDDING MODEL
-# -------------------------------
-@st.cache_resource
-def load_embed_model():
-    return SentenceTransformer('all-MiniLM-L6-v2')
-
-# -------------------------------
-# LOAD WHISPER MODEL
-# -------------------------------
-@st.cache_resource
-def load_whisper():
-    return whisper.load_model("tiny")
-
-embed_model = load_embed_model()
-whisper_model = load_whisper()
-
-# -------------------------------
-# LOAD DATASET
-# -------------------------------
-with open(
-    "pampa_sarvam_structured.json",
-    "r",
-    encoding="utf-8"
-) as f:
-
-    data = json.load(f)
-
-texts = [item["text"] for item in data]
-
-# -------------------------------
-# CREATE EMBEDDINGS
-# -------------------------------
-@st.cache_resource
-def get_embeddings(texts):
-
-    return embed_model.encode(
-        texts,
-        convert_to_tensor=True
-    )
-
-embeddings = get_embeddings(texts)
-
-# -------------------------------
-# SARVAM API
-# -------------------------------
-SARVAM_API_KEY = st.secrets["SARVAM_API_KEY"]
-
-sarvam_headers = {
-    "Authorization": f"Bearer {SARVAM_API_KEY}",
-    "Content-Type": "application/json"
-}
-
-sarvam_url = (
-    "https://api.sarvam.ai/v1/chat/completions"
+# =====================================
+# USER INPUT
+# =====================================
+text = st.text_area(
+    "Enter Kannada Text"
 )
 
-# -------------------------------
-# INPUT MODE
-# -------------------------------
-mode = st.radio(
-    "Choose Input Type",
-    ["Text", "Voice"]
-)
+# =====================================
+# TTS FUNCTION
+# =====================================
+def generate_tts(text):
 
-query = ""
+    url = "https://api.sarvam.ai/text-to-speech"
 
-# -------------------------------
-# TEXT INPUT
-# -------------------------------
-if mode == "Text":
+    payload = {
+        "text": text,
+        "target_language_code": "kn-IN",
+        "speaker": "meera",
+        "model": "bulbul:v3"
+    }
 
-    query = st.text_input(
-        "Enter your question in Kannada"
+    headers = {
+        "api-subscription-key": SARVAM_API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    response = requests.post(
+        url,
+        json=payload,
+        headers=headers
     )
 
-# -------------------------------
-# VOICE INPUT
-# -------------------------------
-else:
+    # DEBUG
+    st.write("Status Code:", response.status_code)
 
-    audio_file = st.file_uploader(
-        "Upload Audio",
-        type=["wav", "mp3"]
+    if response.status_code != 200:
+
+        st.error("TTS Generation Failed")
+        st.write(response.text)
+        return None
+
+    result = response.json()
+
+    # =====================================
+    # BASE64 AUDIO
+    # =====================================
+    audio_base64 = result["audios"][0]
+
+    # DECODE AUDIO
+    audio_bytes = base64.b64decode(
+        audio_base64
     )
 
-    if audio_file:
+    # SAVE TEMP FILE
+    temp_audio = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".wav"
+    )
 
-        with st.spinner(
-            "🎤 Transcribing..."
-        ):
+    temp_audio.write(audio_bytes)
 
-            result = whisper_model.transcribe(
-                audio_file
-            )
+    return temp_audio.name
 
-            query = result["text"]
+# =====================================
+# GENERATE AUDIO
+# =====================================
+if st.button("Generate Audio"):
 
-            st.success(
-                f"Recognized: {query}"
-            )
-
-# -------------------------------
-# MAIN PROCESS
-# -------------------------------
-if st.button("Get Answer"):
-
-    if not query:
+    if not text:
 
         st.warning(
-            "Please enter a question"
+            "Please enter text"
         )
 
     else:
 
         with st.spinner(
-            "⚡ Processing..."
+            "Generating Audio..."
         ):
 
-            # -------------------------------
-            # STEP 1: RETRIEVE CONTEXT
-            # -------------------------------
-            query_embedding = embed_model.encode(
-                query,
-                convert_to_tensor=True
-            )
+            audio_path = generate_tts(text)
 
-            scores = util.cos_sim(
-                query_embedding,
-                embeddings
-            )[0]
+            if audio_path:
 
-            top_k = scores.topk(3)
-
-            context = " ".join([
-                texts[idx]
-                for idx in top_k.indices
-            ])
-
-            # -------------------------------
-            # STEP 2: SARVAM PROMPT
-            # -------------------------------
-            prompt = f"""
-            Answer in Kannada in 1-2 lines only.
-
-            Question:
-            {query}
-
-            Context:
-            {context}
-            """
-
-            payload = {
-
-                "model": "sarvam-m",
-
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-
-                "temperature": 0.2
-            }
-
-            try:
-
-                # -------------------------------
-                # SARVAM API CALL
-                # -------------------------------
-                response = requests.post(
-                    sarvam_url,
-                    headers=sarvam_headers,
-                    json=payload
+                st.success(
+                    "Audio Generated Successfully"
                 )
 
-                result = response.json()
-
-                answer = (
-                    result["choices"][0]
-                    ["message"]["content"]
+                # PLAY AUDIO
+                st.audio(
+                    audio_path,
+                    format="audio/wav"
                 )
 
-                # -------------------------------
-                # DISPLAY ANSWER
-                # -------------------------------
-                st.subheader(
-                    "📌 Short Answer"
-                )
+                # DOWNLOAD BUTTON
+                with open(
+                    audio_path,
+                    "rb"
+                ) as file:
 
-                st.success(answer)
-
-                # -------------------------------
-                # SHOW CONTEXT
-                # -------------------------------
-                with st.expander(
-                    "📜 Retrieved Context"
-                ):
-
-                    st.write(context)
-
-            except Exception as e:
-
-                st.error(
-                    "Error generating response"
-                )
-
-                st.write(e)
+                    st.download_button(
+                        label="Download Audio",
+                        data=file,
+                        file_name="sarvam_audio.wav",
+                        mime="audio/wav"
+                    )
